@@ -13,6 +13,8 @@ permissions:
   contents: read
 
 env:
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+  ANDROID_HOME: /usr/local/lib/android/sdk
   ANDROID_NDK_VERSION: '27.2.12479018'
   CMAKE_VERSION: '3.22.1'
   BUILD_TOOLS_VERSION: '35.0.0'
@@ -35,58 +37,133 @@ jobs:
           java-version: '17'
 
       - name: Configure Android SDK
+        shell: bash
         run: |
-          set -eux
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          set -euxo pipefail
+
+          SDK="${ANDROID_SDK_ROOT}"
+
+          echo "ANDROID_HOME=${SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=${SDK}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${SDK}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${SDK}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+
+          if [ -x "${SDK}/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="${SDK}/cmdline-tools/latest/bin"
+          elif [ -x "${SDK}/cmdline-tools/16.0/bin/sdkmanager" ]; then
+            SDKMANAGER="${SDK}/cmdline-tools/16.0/bin"
+          elif [ -x "${SDK}/cmdline-tools/15.0/bin/sdkmanager" ]; then
+            SDKMANAGER="${SDK}/cmdline-tools/15.0/bin"
+          else
+            echo "ERROR: sdkmanager not found"
+            find "${SDK}/cmdline-tools" -maxdepth 3 -type f -name sdkmanager -print || true
+            exit 1
+          fi
+
+          echo "SDKMANAGER_DIR=${SDKMANAGER}" >> "$GITHUB_ENV"
+          echo "${SDKMANAGER}" >> "$GITHUB_PATH"
+          echo "${SDK}/platform-tools" >> "$GITHUB_PATH"
+
+          echo "SDK=${SDK}"
+          echo "SDKMANAGER_DIR=${SDKMANAGER}"
+
+      - name: Verify sdkmanager
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          "${SDKMANAGER_DIR}/sdkmanager" --version
+          "${SDKMANAGER_DIR}/sdkmanager" --list | head -n 30
 
       - name: Accept Android licenses
+        shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
+          set -euxo pipefail
+          yes | "${SDKMANAGER_DIR}/sdkmanager" --licenses >/dev/null || true
 
       - name: Install Android SDK
+        shell: bash
         run: |
-          set -eux
-          sdkmanager \
+          set -euxo pipefail
+
+          "${SDKMANAGER_DIR}/sdkmanager" \
             "platform-tools" \
             "platforms;${ANDROID_PLATFORM}" \
             "build-tools;${BUILD_TOOLS_VERSION}" \
             "ndk;${ANDROID_NDK_VERSION}" \
             "cmake;${CMAKE_VERSION}"
 
-      - name: Verify toolchain
+      - name: Verify Android toolchain
+        shell: bash
         run: |
-          set -eux
+          set -euxo pipefail
+
           java -version
-          sdkmanager --version
-          test -d "$ANDROID_SDK_ROOT/platforms/${ANDROID_PLATFORM}"
-          test -d "$ANDROID_SDK_ROOT/build-tools/${BUILD_TOOLS_VERSION}"
-          test -d "$ANDROID_SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
-          test -d "$ANDROID_SDK_ROOT/cmake/${CMAKE_VERSION}"
+          "${SDKMANAGER_DIR}/sdkmanager" --version
+
+          test -d "${ANDROID_SDK_ROOT}/platforms/${ANDROID_PLATFORM}"
+          test -d "${ANDROID_SDK_ROOT}/build-tools/${BUILD_TOOLS_VERSION}"
+          test -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          test -d "${ANDROID_SDK_ROOT}/cmake/${CMAKE_VERSION}"
+
+          echo "Android SDK: OK"
+          echo "Platform: OK"
+          echo "Build Tools: OK"
+          echo "NDK: OK"
+          echo "CMake: OK"
+
+      - name: Check project
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          pwd
+          ls -la
+          test -f settings.gradle || test -f settings.gradle.kts
+          test -d app
+          test -f app/build.gradle || test -f app/build.gradle.kts
 
       - name: Create local.properties
+        shell: bash
         run: |
-          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > local.properties
+          printf 'sdk.dir=%s\n' "${ANDROID_SDK_ROOT}" > local.properties
+          cat local.properties
 
       - name: Install Gradle
+        shell: bash
         run: |
-          set -eux
+          set -euxo pipefail
+
           curl -fsSL \
             "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" \
             -o /tmp/gradle.zip
-          mkdir -p "$RUNNER_TEMP/gradle"
-          unzip -q /tmp/gradle.zip -d "$RUNNER_TEMP/gradle"
-          echo "$RUNNER_TEMP/gradle/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
+
+          mkdir -p "${RUNNER_TEMP}/gradle"
+
+          unzip -q /tmp/gradle.zip \
+            -d "${RUNNER_TEMP}/gradle"
+
+          echo "${RUNNER_TEMP}/gradle/gradle-${GRADLE_VERSION}/bin" >> "$GITHUB_PATH"
+
+          "${RUNNER_TEMP}/gradle/gradle-${GRADLE_VERSION}/bin/gradle" --version
 
       - name: Build APK
+        shell: bash
         run: |
-          set -eux
+          set -euxo pipefail
+
           gradle --no-daemon clean assembleDebug --stacktrace
 
       - name: Show APK
+        shell: bash
         run: |
-          find app/build/outputs/apk -type f -name '*.apk' -print -exec ls -lh {} \;
+          set -euxo pipefail
+
+          find app/build/outputs/apk \
+            -type f \
+            -name '*.apk' \
+            -print \
+            -exec ls -lh {} \;
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
