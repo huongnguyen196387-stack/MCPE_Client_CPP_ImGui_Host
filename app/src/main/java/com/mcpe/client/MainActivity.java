@@ -79,7 +79,7 @@ public final class MainActivity extends Activity {
             }
         }
 
-        private static final class RendererImpl implements GLSurfaceView.Renderer {
+        private final class RendererImpl implements GLSurfaceView.Renderer {
             private boolean initialized;
 
             @Override public void onSurfaceCreated(GL10 gl, EGLConfig config) {
