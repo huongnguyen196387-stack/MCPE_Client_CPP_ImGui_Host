@@ -42,7 +42,7 @@ public final class MainActivity extends Activity {
     @Override protected void onResume() { super.onResume(); glView.onResume(); }
     @Override protected void onPause() { glView.onPause(); super.onPause(); }
 
-    private static final class ClientGLSurfaceView extends GLSurfaceView {
+    private final class ClientGLSurfaceView extends GLSurfaceView {
         private final RendererImpl renderer;
         private float lastX, lastY;
         private boolean dragging;
